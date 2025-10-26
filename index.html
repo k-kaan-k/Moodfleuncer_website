@@ -138,6 +138,267 @@
             <p>Manisa, Türkiye</p>
         </div>
     </footer>
+    <style>
+    #mn-chat-bubble {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background-color: #007bff; /* Ana Renk */
+        color: white;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        cursor: pointer;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        z-index: 9998;
+        transition: transform 0.2s ease;
+    }
+    #mn-chat-bubble:hover {
+        transform: scale(1.1);
+    }
+    #mn-chat-popup {
+        display: none; /* Başlangıçta gizli */
+        position: fixed;
+        bottom: 90px;
+        right: 20px;
+        width: 350px;
+        height: 500px;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    #mn-chat-header {
+        background: #007bff; /* Ana Renk */
+        color: white;
+        padding: 15px;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    #mn-chat-close {
+        cursor: pointer;
+        font-size: 20px;
+        font-weight: bold;
+    }
+    #mn-chat-messages {
+        flex: 1;
+        padding: 10px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        background-color: #f9f9f9;
+    }
+    .mn-message {
+        padding: 8px 12px;
+        border-radius: 18px;
+        margin-bottom: 8px;
+        max-width: 80%;
+        word-wrap: break-word;
+        line-height: 1.4;
+    }
+    .mn-user-message {
+        background-color: #e9e9eb;
+        color: black;
+        align-self: flex-end;
+    }
+    .mn-bot-message {
+        background-color: #007bff; /* Ana Renk */
+        color: white;
+        align-self: flex-start;
+    }
+    .mn-bot-loading {
+        align-self: flex-start;
+        padding: 8px 12px;
+    }
+    .mn-bot-loading span {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: #ccc;
+        margin: 0 2px;
+        animation: mn-loading-bounce 1.4s infinite ease-in-out both;
+    }
+    .mn-bot-loading span:nth-child(1) { animation-delay: -0.32s; }
+    .mn-bot-loading span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes mn-loading-bounce {
+        0%, 80%, 100% { transform: scale(0); }
+        40% { transform: scale(1.0); }
+    }
+    #mn-chat-input-area {
+        display: flex;
+        border-top: 1px solid #ddd;
+        padding: 10px;
+        background: white;
+    }
+    #mn-chat-input {
+        flex: 1;
+        border: 1px solid #ccc;
+        border-radius: 20px;
+        padding: 10px 15px;
+        outline: none;
+        font-size: 14px;
+    }
+    #mn-chat-send {
+        background: #007bff; /* Ana Renk */
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        margin-left: 10px;
+        cursor: pointer;
+        font-size: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+</style>
+
+<div id="mn-chat-bubble">💬</div>
+<div id="mn-chat-popup">
+    <div id="mn-chat-header">
+        <span>Mağazanolsun Asistanı</span>
+        <span id="mn-chat-close">×</span>
+    </div>
+    <div id="mn-chat-messages">
+        <div class="mn-message mn-bot-message">Merhaba! Size Mağazanolsun ile ilgili nasıl yardımcı olabilirim?</div>
+    </div>
+    <div id="mn-chat-input-area">
+        <input type="text" id="mn-chat-input" placeholder="Mesajınızı yazın...">
+        <button id="mn-chat-send">➤</button>
+    </div>
+</div>
+
+<script>
+(function() {
+    // === API ADRESİNİZİ BURAYA GİRİN ===
+    // Lokal test için: "http://127.0.0.1:8000/chat"
+    // Sunucuya yükleyince: "https://api.sizin-sunucunuz.com/chat"
+    const API_URL = "http://127.0.0.1:8000/chat"; 
+    // ===
+
+    const bubble = document.getElementById('mn-chat-bubble');
+    const popup = document.getElementById('mn-chat-popup');
+    const closeBtn = document.getElementById('mn-chat-close');
+    const messagesArea = document.getElementById('mn-chat-messages');
+    const input = document.getElementById('mn-chat-input');
+    const sendBtn = document.getElementById('mn-chat-send');
+    let sessionId = null;
+    let loadingDiv = null;
+
+    // 1. Session ID'yi al veya oluştur (Tarayıcı hafızasında sakla)
+    function getOrCreateSessionId() {
+        let id = localStorage.getItem('mn_chatbot_session_id');
+        if (!id) {
+            id = 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+            localStorage.setItem('mn_chatbot_session_id', id);
+        }
+        return id;
+    }
+
+    // 2. Widget'ı Aç/Kapat
+    bubble.addEventListener('click', () => {
+        popup.style.display = 'flex';
+        bubble.style.display = 'none';
+    });
+    closeBtn.addEventListener('click', () => {
+        popup.style.display = 'none';
+        bubble.style.display = 'flex';
+    });
+
+    // 3. Mesaj gönderme (Click veya Enter)
+    sendBtn.addEventListener('click', sendMessage);
+    input.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    // 4. Mesajı API'ye gönder
+    async function sendMessage() {
+        const query = input.value.trim();
+        if (query === "") return;
+
+        // Session ID'yi yükle
+        if (!sessionId) {
+            sessionId = getOrCreateSessionId();
+        }
+
+        addMessage(query, 'mn-user-message');
+        input.value = "";
+        showLoading(true);
+
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: query,
+                    session_id: sessionId
+                })
+            });
+
+            showLoading(false);
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.detail || "Sunucu yanıt vermedi.");
+            }
+
+            const data = await response.json();
+            addMessage(data.answer, 'mn-bot-message');
+
+        } catch (error) {
+            showLoading(false);
+            addMessage("Üzgünüm, şu anda size yardımcı olamıyorum. Lütfen daha sonra tekrar deneyin.", 'mn-bot-message');
+            console.error("Chatbot API Hatası:", error);
+        }
+    }
+
+    // 5. Yardımcı fonksiyonlar
+    function addMessage(text, type) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `mn-message ${type}`;
+        messageDiv.textContent = text; // Güvenlik için textContent kullan
+        messagesArea.appendChild(messageDiv);
+        scrollToBottom();
+    }
+    
+    function showLoading(isLoading) {
+        if (isLoading) {
+            if (!loadingDiv) {
+                loadingDiv = document.createElement('div');
+                loadingDiv.className = 'mn-bot-loading';
+                loadingDiv.innerHTML = '<span></span><span></span><span></span>';
+                messagesArea.appendChild(loadingDiv);
+                scrollToBottom();
+            }
+        } else {
+            if (loadingDiv) {
+                messagesArea.removeChild(loadingDiv);
+                loadingDiv = null;
+            }
+        }
+    }
+
+    function scrollToBottom() {
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+    }
+
+    // Başlangıçta session ID'yi al
+    sessionId = getOrCreateSessionId();
+})();
+</script>
 </body>
 
 </html>
